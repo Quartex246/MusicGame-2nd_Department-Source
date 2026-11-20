@@ -84,7 +84,9 @@ static func _candidates() -> Array:
 
 
 func _ffmpeg() -> String:
-	return MediaIO.ffmpeg_exe if MediaIO.has_ffmpeg() else ""
+	# 必须用 MediaIO.exe() 的解析结果：设置里的 "ffmpeg" 会解析到内置 tools/ 目录，
+	# 直接拿原始字符串在 PATH 没有 ffmpeg 的机器上会静默失败（打击音轨整个丢掉）。
+	return MediaIO.exe() if MediaIO.has_ffmpeg() else ""
 
 
 func _list_encoders(ffmpeg: String) -> Dictionary:
