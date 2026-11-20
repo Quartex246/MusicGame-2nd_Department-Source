@@ -95,6 +95,8 @@ var inspector_width: float = 310.0
 var preview_collapsed: bool = false
 var hit_fx_style: String = "burst"
 var hit_sfx_style: String = "default"
+## 自定义「音符开头」音效（hit：tap / hold 头 / path 头）的 user:// 路径；空 = 内置音。
+var hit_sfx_custom_head: String = ""
 ## 试玩光标大小倍率（1.0 = 默认）。
 var cursor_scale: float = 1.0
 ## 帧率上限："60" / "120" / "144" / "240" / "vsync" / "unlimited"。
@@ -553,6 +555,8 @@ func _update_window_title() -> void:
 
 
 const SETTINGS_PATH := "user://settings.json"
+## 自定义音效单独放一个目录：不跟 user://audio/ 里导入的歌曲音频混在一起，避免同名覆盖。
+const CUSTOM_SFX_DIR := "user://sfx"
 ## 舞台底色（project.godot 的 default_clear_color），用于对比度提示。
 const STAGE_BACKGROUND := Color(0.043137, 0.047059, 0.062745)
 
@@ -607,6 +611,7 @@ func _load_settings() -> void:
 			preview_collapsed = bool(data.get("preview_collapsed", preview_collapsed))
 			hit_fx_style = String(data.get("hit_fx_style", hit_fx_style))
 			hit_sfx_style = String(data.get("hit_sfx_style", hit_sfx_style))
+			hit_sfx_custom_head = String(data.get("hit_sfx_custom_head", hit_sfx_custom_head))
 			ffmpeg_path = String(data.get("ffmpeg", ffmpeg_path))
 			frame_cap = String(data.get("frame_cap", frame_cap))
 			video_encoder = String(data.get("video_encoder", video_encoder))
@@ -782,7 +787,7 @@ func effective_latency_sec() -> float:
 
 
 func save_settings() -> void:
-	var data := {"settings_version": 1, "path_wait_indicator": path_wait_indicator, "note_skin": note_skin, "hit_fx_style": hit_fx_style, "hit_sfx_style": hit_sfx_style, "ffmpeg": ffmpeg_path, "frame_cap": frame_cap, "video_encoder": video_encoder, "audio_buffer_ms": audio_buffer_ms, "playtest_offset_ms": playtest_offset_ms, "audio_latency_ms": audio_latency_ms, "music_volume": music_volume, "sfx_volume": sfx_volume, "dynamic_offset": dynamic_offset, "playtest_auto": playtest_auto, "playtest_mirror": playtest_mirror, "playback_scroll": playback_scroll, "background_brightness": background_brightness, "mouse_tilt": mouse_tilt, "startup_tabs": startup_tabs, "osu_favorites": osu_favorites, "last_bias_ms": last_bias_ms, "cursor_scale": cursor_scale, "flow_scale": flow_scale, "aa_2d_level": aa_2d_level, "msaa_3d_level": msaa_3d_level, "ring_pad_rect": ring_pad_rect, "angle_divisions": angle_divisions, "note_detail_fine": note_detail_fine, "note_glow": note_glow, "path_style": path_style, "bpm_lock_ms": bpm_lock_ms, "cursor_trail": cursor_trail, "fx_budget": fx_budget, "ring_3d_scale": ring_3d_scale, "bar_lines": bar_lines, "quality_preset": quality_preset,
+	var data := {"settings_version": 1, "path_wait_indicator": path_wait_indicator, "note_skin": note_skin, "hit_fx_style": hit_fx_style, "hit_sfx_style": hit_sfx_style, "hit_sfx_custom_head": hit_sfx_custom_head, "ffmpeg": ffmpeg_path, "frame_cap": frame_cap, "video_encoder": video_encoder, "audio_buffer_ms": audio_buffer_ms, "playtest_offset_ms": playtest_offset_ms, "audio_latency_ms": audio_latency_ms, "music_volume": music_volume, "sfx_volume": sfx_volume, "dynamic_offset": dynamic_offset, "playtest_auto": playtest_auto, "playtest_mirror": playtest_mirror, "playback_scroll": playback_scroll, "background_brightness": background_brightness, "mouse_tilt": mouse_tilt, "startup_tabs": startup_tabs, "osu_favorites": osu_favorites, "last_bias_ms": last_bias_ms, "cursor_scale": cursor_scale, "flow_scale": flow_scale, "aa_2d_level": aa_2d_level, "msaa_3d_level": msaa_3d_level, "ring_pad_rect": ring_pad_rect, "angle_divisions": angle_divisions, "note_detail_fine": note_detail_fine, "note_glow": note_glow, "path_style": path_style, "bpm_lock_ms": bpm_lock_ms, "cursor_trail": cursor_trail, "fx_budget": fx_budget, "ring_3d_scale": ring_3d_scale, "bar_lines": bar_lines, "quality_preset": quality_preset,
 		"hud_scale": hud_scale, "hud_combo_mode": hud_combo_mode, "hud_progress_style": hud_progress_style,
 		"hud_judge_position": hud_judge_position, "hud_opacity": hud_opacity,
 		"hud_show_title": hud_show_title, "hud_show_difficulty": hud_show_difficulty,
@@ -807,6 +812,40 @@ func set_ffmpeg_path(path: String) -> void:
 	MediaIO.set_ffmpeg_exe(ffmpeg_path)
 	save_settings()
 	notice.emit("ffmpeg 路径：%s" % ffmpeg_path, "info")
+
+
+## 选一个音频文件当「音符开头」音效（hit：tap / hold 头 / path 头）：复制进 user://sfx/，
+## 之后即使原文件被移走或打包也能播。传空字符串恢复内置音；返回是否生效。
+func set_hit_sfx_custom_head(source: String) -> bool:
+	source = source.strip_edges()
+	var stored := ""
+	if not source.is_empty():
+		if not MediaIO.is_supported_audio(source):
+			notice.emit("不支持的音效格式：%s（可用 wav / ogg / mp3 / flac）" % source.get_extension(), "warning")
+			return false
+		stored = _store_custom_sfx(source)
+		if stored.is_empty():
+			notice.emit("无法复制音效文件：%s" % source, "warning")
+			return false
+	var previous := hit_sfx_custom_head
+	hit_sfx_custom_head = stored
+	save_settings()
+	# 换文件时清掉上一份副本（只清 user://sfx/ 里的），免得目录越攒越多。
+	if previous != stored and previous.begins_with(CUSTOM_SFX_DIR + "/"):
+		DirAccess.remove_absolute(ProjectSettings.globalize_path(previous))
+	appearance_changed.emit()
+	notice.emit("音符开头音效：%s" % ("内置" if stored.is_empty() else stored.get_file()), "info")
+	return true
+
+
+func _store_custom_sfx(source: String) -> String:
+	# 已经在自定义目录里的（用户重复选择同一份）不用再复制。
+	if source.begins_with(CUSTOM_SFX_DIR + "/"):
+		return source
+	DirAccess.make_dir_recursive_absolute(ProjectSettings.globalize_path(CUSTOM_SFX_DIR))
+	var target := "%s/%s" % [CUSTOM_SFX_DIR, source.get_file().validate_filename()]
+	var err := DirAccess.copy_absolute(ProjectSettings.globalize_path(source), ProjectSettings.globalize_path(target))
+	return target if err == OK else ""
 
 
 func set_chart(new_chart: Chart, path: String = "", mark_dirty: bool = false) -> void:

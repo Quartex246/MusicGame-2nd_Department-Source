@@ -19,6 +19,8 @@ func _check(condition: bool, label: String) -> void:
 func _run() -> void:
 	var app := root.get_node("App")
 	app.hit_sfx_style = "default"
+	# 本机保存过自定义开头音效时也要跑内置音，否则下面「Path 头与 Tap 同源」的断言会被带偏。
+	app.hit_sfx_custom_head = ""
 	var editor = load("res://charter/main.tscn").instantiate()
 	root.add_child(editor)
 	editor.set_process(false)
@@ -136,6 +138,36 @@ func _run() -> void:
 		app.set_chart(chart, "", false)
 		editor._build_sfx_events()
 		_check(editor._sfx_events[0]["kind"] == HitSfx.kind_for_note(note), "editor Path head matches Tap sound too")
+	# 自定义「音符开头」音效：只换 tap/hold/path 头用的采样，其它 kind 和音量基准不动。
+	var fixture_wav := _write_test_wav("user://sfx_custom_head_test.wav")
+	_check(not fixture_wav.is_empty(), "custom hit wav fixture written")
+	app.set_hit_sfx_custom_head(fixture_wav)
+	var stored: String = app.hit_sfx_custom_head
+	_check(stored.begins_with("user://sfx/") and FileAccess.file_exists(ProjectSettings.globalize_path(stored)), "custom hit copied into user sfx dir")
+	_check(editor._sfx.has_custom_head() and playtest._sfx.has_custom_head(), "editor and playtest pick up custom hit")
+	for player in editor._sfx._players:
+		player.stop()
+	editor._sfx.play("don")
+	var head_player: AudioStreamPlayer = _last_player(editor._sfx)
+	_check(head_player.stream == editor._sfx._custom_head, "custom hit replaces the don sample")
+	_check(is_equal_approx(head_player.volume_db, HitSfx.VOLUME_DB), "custom hit uses one volume base instead of per-kind db")
+	editor._sfx.play("anchor")
+	var anchor_player: AudioStreamPlayer = _last_player(editor._sfx)
+	_check(anchor_player.stream == editor._sfx._streams["anchor"], "custom hit leaves anchor on the builtin sample")
+	_check(editor._sfx.stream_path_for("path") == stored, "custom hit is used for path heads")
+	_check(editor._sfx.stream_path_for("tail") == String(HitSfx.PATHS["tail"]), "custom hit leaves path tails on the builtin sample")
+	editor._sfx.set_style("crisp")
+	editor._sfx.play("path")
+	var crisp_player: AudioStreamPlayer = _last_player(editor._sfx)
+	_check(is_equal_approx(crisp_player.volume_db, HitSfx.VOLUME_DB + float(HitSfx.STYLE_DB["crisp"])), "custom hit keeps the style volume offset")
+	_check(is_equal_approx(crisp_player.pitch_scale, float(HitSfx.STYLE_PITCH["crisp"])), "custom hit keeps the style pitch offset")
+	editor._sfx.set_style("default")
+	_check(await _await_peak(capture) > 0.001, "custom hit reaches SFX bus")
+	app.appearance_changed.emit()
+	app.set_hit_sfx_custom_head("")
+	_check(app.hit_sfx_custom_head.is_empty(), "restoring default clears the stored path")
+	_check(not editor._sfx.has_custom_head() and not playtest._sfx.has_custom_head(), "restoring default drops the custom hit everywhere")
+	_check(not FileAccess.file_exists(ProjectSettings.globalize_path(stored)), "restoring default removes the copied file")
 	AudioServer.remove_bus_effect(bus, 0)
 	playtest.free()
 	editor.free()
@@ -155,8 +187,45 @@ func _await_peak(capture: AudioEffectCapture, timeout_sec := 1.0) -> float:
 	return 0.0
 
 
+## 池是轮转的，_index 会一直涨；不能用 _index - 1 直接当下标。
+func _last_player(sfx: HitSfx) -> AudioStreamPlayer:
+	return sfx._players[(sfx._index - 1) % sfx._players.size()]
+
+
 func _capture_peak(capture: AudioEffectCapture) -> float:
 	var peak := 0.0
 	for frame in capture.get_buffer(capture.get_frames_available()):
 		peak = maxf(peak, maxf(absf(frame.x), absf(frame.y)))
 	return peak
+
+
+## 生成一个 44.1k / 16 位单声道 wav，当作「用户自己选的音效」。
+func _write_test_wav(path: String) -> String:
+	var rate := 44100
+	var count := 2205
+	var data := PackedByteArray()
+	data.resize(count * 2)
+	for i in count:
+		data.encode_s16(i * 2, int(sin(TAU * 440.0 * float(i) / float(rate)) * 12000.0))
+	var header := PackedByteArray()
+	header.resize(44)
+	header.encode_u32(0, 0x46464952)  # RIFF
+	header.encode_u32(4, 36 + data.size())
+	header.encode_u32(8, 0x45564157)  # WAVE
+	header.encode_u32(12, 0x20746D66)  # "fmt "
+	header.encode_u32(16, 16)
+	header.encode_u16(20, 1)
+	header.encode_u16(22, 1)
+	header.encode_u32(24, rate)
+	header.encode_u32(28, rate * 2)
+	header.encode_u16(32, 2)
+	header.encode_u16(34, 16)
+	header.encode_u32(36, 0x61746164)  # data
+	header.encode_u32(40, data.size())
+	var file := FileAccess.open(ProjectSettings.globalize_path(path), FileAccess.WRITE)
+	if file == null:
+		return ""
+	file.store_buffer(header)
+	file.store_buffer(data)
+	file.close()
+	return path

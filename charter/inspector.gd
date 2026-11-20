@@ -1138,6 +1138,22 @@ func _build_view_page(page: VBoxContainer) -> void:
 		_app.notice.emit("打击音效：%s" % sfx_labels[index], "info")
 	)
 	_label(page, "试玩中 F6 换皮肤、F7 换特效；音效只改打击音色，不改判定。", 11, UITheme.MUTED)
+	var head_path := LineEdit.new()
+	head_path.editable = false
+	head_path.text = _custom_sfx_label(_app.hit_sfx_custom_head)
+	head_path.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	head_path.tooltip_text = _app.hit_sfx_custom_head if not _app.hit_sfx_custom_head.is_empty() else "未选择时使用内置打击音。"
+	_row(page, "开头音效", head_path)
+	# 多行 lambda 直接写在数组字面量里会让缩进解析失败，先存成局部变量。
+	var reset_head := func() -> void:
+		if _app.set_hit_sfx_custom_head(""):
+			_app.preview_sfx.emit()
+		_rebuild()
+	_buttons(page, [
+		{"text": "选择…", "callback": func() -> void: _pick_custom_head()},
+		{"text": "恢复默认", "callback": reset_head},
+	])
+	_label(page, "只替换「音符开头」的打击音：tap、hold 开头、星星开头（path）。尾音、锚点、滑键提示音不变；仍然吃上面的「打击音效」音量和变调。", 11, UITheme.MUTED)
 	_section(page, "显示")
 	_setting_option(page, "Path 启动指示", App.PATH_WAIT_LABELS, maxi(0, App.PATH_WAIT_MODES.find(_app.path_wait_indicator)), func(index: int) -> void:
 		_app.path_wait_indicator = App.PATH_WAIT_MODES[index]
@@ -1271,6 +1287,34 @@ func _pick_cover() -> void:
 	dialog.file_selected.connect(func(_path: String) -> void: dialog.queue_free())
 	add_child(dialog)
 	dialog.popup_centered_ratio(0.55)
+
+
+## 选一个音频文件作为「音符开头」音效；文件会复制进 user://sfx/，
+## 之后源文件被移走也能继续播。
+func _pick_custom_head() -> void:
+	var dialog := FileDialog.new()
+	dialog.file_mode = FileDialog.FILE_MODE_OPEN_FILE
+	dialog.access = FileDialog.ACCESS_FILESYSTEM
+	dialog.filters = PackedStringArray(["*.wav,*.ogg,*.mp3,*.flac ; 音频"])
+	dialog.title = "选择音符开头音效"
+	dialog.file_selected.connect(func(path: String) -> void:
+		if _app.set_hit_sfx_custom_head(path):
+			_app.preview_sfx.emit()
+		_rebuild()
+	)
+	dialog.canceled.connect(func() -> void: dialog.queue_free())
+	dialog.file_selected.connect(func(_path: String) -> void: dialog.queue_free())
+	add_child(dialog)
+	dialog.popup_centered_ratio(0.55)
+
+
+func _custom_sfx_label(path: String) -> String:
+	if path.is_empty():
+		return "内置（don / kat / path）"
+	# 文件被手动删掉时别让用户以为还在用自定义音：HitSfx 会退回内置，这里如实说明。
+	if not FileAccess.file_exists(path):
+		return "%s（文件缺失，使用内置音）" % path.get_file()
+	return path.get_file()
 
 
 ## 列表里的位置写成「小节:拍:分音」；format_beat 已经是 1 起的小节号。

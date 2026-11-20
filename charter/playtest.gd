@@ -292,6 +292,7 @@ func _ready() -> void:
 
 func _sync_sfx_style() -> void:
 	_sfx.set_style(String(_app.hit_sfx_style) if _app != null else "default")
+	_sfx.set_custom_head(String(_app.hit_sfx_custom_head) if _app != null else "")
 
 
 func setup(p_chart: Chart, p_start_beat: float, p_chart_path: String) -> void:
@@ -1244,6 +1245,8 @@ func _start_recording() -> void:
 		"hit_fx": _preview.hit_fx_style,
 		# 上游新加的「打击音色」：回放时沿用录制时的，声音才对得上。
 		"hit_sfx": String(_app.hit_sfx_style) if _app != null else "default",
+		# 自定义「音符开头」音效同理：回放/导出要能听到录制时的那一份。
+		"hit_sfx_custom": _sfx.custom_head_path if _sfx != null else "",
 		"rate": 1.0,
 		# 光标坐标是相对试玩窗口记的；导出 1280x720 时要用它换算倾斜。
 		"cursor_size": [_preview.size.x, _preview.size.y],
@@ -1290,6 +1293,8 @@ func _enter_replay(data: Replay) -> void:
 		_preview.hit_fx_style = String(data.settings["hit_fx"])
 	if data.settings.has("hit_sfx") and _sfx != null:
 		_sfx.set_style(String(data.settings["hit_sfx"]))
+	if data.settings.has("hit_sfx_custom") and _sfx != null:
+		_sfx.set_custom_head(String(data.settings["hit_sfx_custom"]))
 	for event in _replay_events:
 		if String(event.get("k", "")) == "move":
 			_replay_cursor = _replay_point(float(event.get("x", 0.0)), float(event.get("y", 0.0)))

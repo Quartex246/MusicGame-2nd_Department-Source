@@ -331,7 +331,9 @@ BGA 默认**直接解码、不转码**：`addons/ffmpeg` 里带了 [EIRTeam.FFmp
 
 `HitSfx.KIND_DB` 控制各类音效的音量（dB）；`STYLE_PITCH` / `STYLE_DB` 控制“原声、清脆、厚重”的音高与音量，它们共用这 8 个文件。编辑器运输条的“音效”滑杆控制共用 SFX 总线，“打击音”复选框只控制编辑器预听；外观设置中的“打击音效 → 静音”同时影响编辑器和试玩，恢复为“原声”即可解除。
 
-音效回归测试：`godot --headless --path . --script tests/sfx_playback.gd`。覆盖 8 种音效的总线输出、舞萌导入谱和自制谱的编辑器/试玩触发、卡帧后补发、跳转不补播和试玩静音切换；不验证扬声器或耳机的实际输出。
+外观设置里还可以给**音符开头**单独选一个自定义音效（「开头音效 → 选择…」）：它替换 tap / Hold 头 / Path 头（`HitSfx.HEAD_KINDS = don, kat, path`）的采样，尾音、锚点、起划提示音和铃音不变，并且继续吃“打击音效”的音量与变调。文件会复制到 `user://sfx/`（Windows 默认 `%APPDATA%\Godot\app_userdata\Tamaki₃ 制谱器\sfx`），所以源文件删掉也不影响；换文件时上一份副本自动清理，“恢复默认”删掉副本并回到内置音。支持 wav / ogg / mp3 / flac，导出视频时也从同一份文件混音，不需要额外改 `HitSfx.PATHS`。
+
+音效回归测试：`godot --headless --path . --script tests/sfx_playback.gd`。覆盖 8 种音效的总线输出、舞萌导入谱和自制谱的编辑器/试玩触发、卡帧后补发、跳转不补播和试玩静音切换，以及自定义开头音效的复制/替换/音量基准/恢复默认；不验证扬声器或耳机的实际输出。
 
 Path 判定回归测试：`godot --headless --path . --script tests/path_judgement.gd`。覆盖快速经过、直接碰尾、弯折/回环/折返、等待段、输入中断、重叠轨迹、容差跳组、短滑条保护、AUTO、重开和轨迹消除。
 

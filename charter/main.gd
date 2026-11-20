@@ -204,6 +204,7 @@ func _ready() -> void:
 	_sfx.name = "EditorHitSfx"
 	add_child(_sfx)
 	_sfx.set_style(String(_app.hit_sfx_style) if _app != null else "default")
+	_sfx.set_custom_head(String(_app.hit_sfx_custom_head) if _app != null else "")
 	_build_dialogs()
 	_build_audio_popup()
 	if _app != null:
@@ -1710,6 +1711,7 @@ func _sync_appearance() -> void:
 	_preview.refresh_style()
 	if _sfx != null:
 		_sfx.set_style(_app.hit_sfx_style)
+		_sfx.set_custom_head(_app.hit_sfx_custom_head)
 
 
 func _sync_from_app() -> void:
@@ -1727,6 +1729,7 @@ func _sync_from_app() -> void:
 	_preview.hit_fx_style = _app.hit_fx_style
 	_preview.cursor_scale = _app.cursor_scale
 	_sfx.set_style(_app.hit_sfx_style)
+	_sfx.set_custom_head(_app.hit_sfx_custom_head)
 	_canvas.px_per_beat = _app.zoom_px_per_beat
 	_canvas.clamp_scroll()
 	_sync_playback_view()
