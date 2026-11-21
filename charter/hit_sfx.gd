@@ -21,6 +21,9 @@ const PATHS := {
 ## 自定义「音符开头」音效（用户口中的 hit）覆盖的 kind：tap（don/kat）、hold 头、path 头。
 ## 尾音、锚点、滑键提示音、铃音不在其中。
 const HEAD_KINDS := ["don", "kat", "path"]
+## 音符开头音效的「截停」：新命中直接停掉上一声（Majdata 的 restart 行为）。
+## 同一帧内的合键（间隔 ≤ 这个毫秒数）不互相截断，否则双押等同时按下的音符只响一个。
+const HIT_CUT_GRACE_MS := 8
 
 var _streams: Dictionary = {}
 var _players: Array[AudioStreamPlayer] = []
@@ -32,6 +35,9 @@ var _custom_head: AudioStream = null
 var _custom_head_key: String = ""
 ## 同一路径重新选了内容不同的文件时，靠修改时间判断要不要重新加载。
 var _custom_head_mtime: int = 0
+## 「截停」用：上一次音符开头音效占用的播放器与开始时刻。
+var _last_head_player: AudioStreamPlayer = null
+var _last_head_ms: int = -1000
 
 
 func _ready() -> void:
@@ -99,6 +105,15 @@ func play(kind: String, pitch: float = 1.0) -> void:
 		return
 	var player := _players[_index % _players.size()]
 	_index += 1
+	# 音符开头音效「截停」：上一声还在响就直接停掉，连打时不会叠成一片。
+	# 同帧合键（间隔 ≤ HIT_CUT_GRACE_MS）保留叠加，双押不会只响一个。
+	if kind in HEAD_KINDS:
+		var now := Time.get_ticks_msec()
+		var cut := _last_head_player != null and _last_head_player != player
+		if cut and now - _last_head_ms > HIT_CUT_GRACE_MS:
+			_last_head_player.stop()
+		_last_head_player = player
+		_last_head_ms = now
 	player.stream = stream
 	# 自定义音效统一用一个音量基准，避免 don/kat/path 三档不同音量把同一采样拆成三种响度。
 	var base_db: float = VOLUME_DB if custom else float(KIND_DB.get(kind, VOLUME_DB))

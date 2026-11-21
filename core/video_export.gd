@@ -406,8 +406,19 @@ func _render_sfx(events: Array, style: String, start_ms: float, span_ms: float, 
 		pcm_cache[path] = _sfx_pcm(path)
 	var mix := PackedFloat32Array()
 	mix.resize(total)
+	# 复刻游戏里的「截停」：下一声符开头命中会把上一声打断（同帧合键除外）。
+	var cut_at := {}
+	var prev_head := -1
+	for ei in events.size():
+		if String(events[ei].get("k", "")) not in HitSfx.HEAD_KINDS:
+			continue
+		var t := float(events[ei].get("t", 0.0))
+		if prev_head >= 0 and t - float(events[prev_head].get("t", 0.0)) > float(HitSfx.HIT_CUT_GRACE_MS):
+			cut_at[prev_head] = int(round((t - start_ms) / 1000.0 * float(rate)))
+		prev_head = ei
 	var played := false
-	for event in events:
+	for ei in events.size():
+		var event: Dictionary = events[ei]
 		var kind := String(event.get("k", ""))
 		var path := _sfx_path_for(kind, head_path)
 		var buf: PackedFloat32Array = pcm_cache.get(path, PackedFloat32Array())
@@ -420,9 +431,12 @@ func _render_sfx(events: Array, style: String, start_ms: float, span_ms: float, 
 			base_db = HitSfx.VOLUME_DB
 		var gain := db_to_linear(base_db + float(HitSfx.STYLE_DB.get(style, 0.0)))
 		var start := int(round((float(event.get("t", 0.0)) - start_ms) / 1000.0 * float(rate)))
+		var end := total
+		if cut_at.has(ei):
+			end = mini(end, int(cut_at[ei]))
 		var pos := 0.0
 		var i := 0
-		while pos < float(buf.size() - 1) and start + i < total:
+		while pos < float(buf.size() - 1) and start + i < end:
 			if start + i >= 0:
 				var index := int(pos)
 				mix[start + i] += lerpf(buf[index], buf[index + 1], pos - float(index)) * gain

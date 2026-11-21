@@ -168,6 +168,30 @@ func _run() -> void:
 	_check(app.hit_sfx_custom_head.is_empty(), "restoring default clears the stored path")
 	_check(not editor._sfx.has_custom_head() and not playtest._sfx.has_custom_head(), "restoring default drops the custom hit everywhere")
 	_check(not FileAccess.file_exists(ProjectSettings.globalize_path(stored)), "restoring default removes the copied file")
+	# 「截停」：连续命中时上一声立即停；同一帧的合键保留叠加。
+	for player in editor._sfx._players:
+		player.stop()
+	editor._sfx.play("don")
+	var first_hit: AudioStreamPlayer = _last_player(editor._sfx)
+	await create_timer(0.02).timeout
+	editor._sfx.play("don")
+	var second_hit: AudioStreamPlayer = _last_player(editor._sfx)
+	_check(first_hit != second_hit and not first_hit.playing, "next hit cuts the previous head sfx")
+	for player in editor._sfx._players:
+		player.stop()
+	editor._sfx.play("don")
+	var chord_a: AudioStreamPlayer = _last_player(editor._sfx)
+	editor._sfx.play("kat")
+	var chord_b: AudioStreamPlayer = _last_player(editor._sfx)
+	_check(chord_a != chord_b and chord_a.playing, "same-frame chord keeps both head sfx")
+	# 尾音不参与截停：path 尾再响一次，前一声不该被停。
+	for player in editor._sfx._players:
+		player.stop()
+	editor._sfx.play("tail")
+	var tail_a: AudioStreamPlayer = _last_player(editor._sfx)
+	await create_timer(0.02).timeout
+	editor._sfx.play("tail")
+	_check(tail_a.playing, "path tails are not cut by the next tail")
 	AudioServer.remove_bus_effect(bus, 0)
 	playtest.free()
 	editor.free()
