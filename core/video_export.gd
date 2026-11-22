@@ -264,6 +264,7 @@ func export_chart(chart: Chart, start_ms: float, end_ms: float, out_path: String
 	var sfx_events: Array = playtest.sfx_capture if playtest.sfx_capture != null else []
 	var sfx_style := String(playtest._sfx.style) if playtest._sfx != null else "default"
 	var sfx_head := String(playtest._sfx.custom_head_path) if playtest._sfx != null else ""
+	var sfx_slide := String(playtest._sfx.custom_slide_path) if playtest._sfx != null else ""
 	playtest.queue_free()
 	viewport.queue_free()
 	_running = false
@@ -287,7 +288,7 @@ func export_chart(chart: Chart, start_ms: float, end_ms: float, out_path: String
 	var sfx := ""
 	if not sfx_events.is_empty():
 		sfx = out_path.get_basename() + ".sfx.wav"
-		if not _render_sfx(sfx_events, sfx_style, start_ms, span, sfx, sfx_head):
+		if not _render_sfx(sfx_events, sfx_style, start_ms, span, sfx, sfx_head, sfx_slide):
 			sfx = ""
 	var audio := _audio_source(chart)
 	if not audio.is_empty() or not sfx.is_empty():
@@ -391,7 +392,7 @@ func _mux_audio(video: String, audio: String, sfx: String, out: String, start_ms
 ## 离线判定不发声：把捕获到的打击音事件按 HitSfx 的音量/音高混成一条 wav 音轨。
 ## 源素材统一交给 ffmpeg 转成 44.1k 单声道（.ogg 在 GDScript 里没法解码）。
 func _render_sfx(events: Array, style: String, start_ms: float, span_ms: float, out_path: String,
-		head_path: String = "") -> bool:
+		head_path: String = "", slide_path: String = "") -> bool:
 	# 「打击音效 → 静音」在游戏里就是不播，导出也要一致。
 	if style == "mute":
 		return false
@@ -400,7 +401,7 @@ func _render_sfx(events: Array, style: String, start_ms: float, span_ms: float, 
 	# 按「采样文件」缓存，而不是按 kind：自定义开头音效会让 don/kat/path 共用同一个文件。
 	var pcm_cache := {}
 	for event in events:
-		var path := _sfx_path_for(String(event.get("k", "")), head_path)
+		var path := _sfx_path_for(String(event.get("k", "")), head_path, slide_path)
 		if path.is_empty() or pcm_cache.has(path):
 			continue
 		pcm_cache[path] = _sfx_pcm(path)
@@ -420,7 +421,7 @@ func _render_sfx(events: Array, style: String, start_ms: float, span_ms: float, 
 	for ei in events.size():
 		var event: Dictionary = events[ei]
 		var kind := String(event.get("k", ""))
-		var path := _sfx_path_for(kind, head_path)
+		var path := _sfx_path_for(kind, head_path, slide_path)
 		var buf: PackedFloat32Array = pcm_cache.get(path, PackedFloat32Array())
 		if buf.size() < 2:
 			continue
@@ -473,10 +474,13 @@ func _render_sfx(events: Array, style: String, start_ms: float, span_ms: float, 
 	return true
 
 
-## 某个 kind 在导出时该用的采样路径：开头音（don/kat/path）若选了自定义文件就用它。
-func _sfx_path_for(kind: String, head_path: String) -> String:
+## 某个 kind 在导出时该用的采样路径：开头音（don/kat/path）与 Path 启动音（slide）
+## 若选了自定义文件就用它。
+func _sfx_path_for(kind: String, head_path: String, slide_path: String) -> String:
 	if _uses_custom_head(kind, head_path):
 		return head_path
+	if kind == "slide" and not slide_path.is_empty():
+		return slide_path
 	return String(HitSfx.PATHS.get(kind, ""))
 
 

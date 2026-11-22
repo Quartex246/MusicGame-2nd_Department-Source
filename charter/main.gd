@@ -33,6 +33,8 @@ var _playtest_validation_pending: bool = false
 var _settings_dialog: AcceptDialog = null
 ## 设置 → 音频里的「开头音效」文件名（设置窗口只建一次，选完要手动刷新）。
 var _sfx_head_label: Label = null
+## 设置 → 音频里的「Path 启动音」文件名（同上）。
+var _sfx_slide_label: Label = null
 var _quality_widgets: Dictionary = {}
 var _hud_widgets: Dictionary = {}
 
@@ -207,6 +209,7 @@ func _ready() -> void:
 	add_child(_sfx)
 	_sfx.set_style(String(_app.hit_sfx_style) if _app != null else "default")
 	_sfx.set_custom_head(String(_app.hit_sfx_custom_head) if _app != null else "")
+	_sfx.set_custom_slide(String(_app.path_sfx_custom) if _app != null else "")
 	_build_dialogs()
 	_build_audio_popup()
 	if _app != null:
@@ -1714,6 +1717,7 @@ func _sync_appearance() -> void:
 	if _sfx != null:
 		_sfx.set_style(_app.hit_sfx_style)
 		_sfx.set_custom_head(_app.hit_sfx_custom_head)
+		_sfx.set_custom_slide(_app.path_sfx_custom)
 
 
 func _sync_from_app() -> void:
@@ -1732,6 +1736,7 @@ func _sync_from_app() -> void:
 	_preview.cursor_scale = _app.cursor_scale
 	_sfx.set_style(_app.hit_sfx_style)
 	_sfx.set_custom_head(_app.hit_sfx_custom_head)
+	_sfx.set_custom_slide(_app.path_sfx_custom)
 	_canvas.px_per_beat = _app.zoom_px_per_beat
 	_canvas.clamp_scroll()
 	_sync_playback_view()
@@ -2983,44 +2988,73 @@ func _build_audio_rows(parent: Control) -> void:
 	)
 	grid.add_child(sfx_pick)
 	# 音符开头音效：只换 tap / Hold 头 / Path 头用的采样。
-	var head_label := Label.new()
-	head_label.text = "开头音效"
-	head_label.add_theme_font_size_override("font_size", 11)
-	grid.add_child(head_label)
-	var head_row := HBoxContainer.new()
-	head_row.add_theme_constant_override("separation", 6)
-	_sfx_head_label = Label.new()
-	_sfx_head_label.add_theme_font_size_override("font_size", 11)
-	_sfx_head_label.add_theme_color_override("font_color", UITheme.MUTED)
-	_sfx_head_label.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-	_sfx_head_label.clip_text = true
-	head_row.add_child(_sfx_head_label)
-	var head_pick := Button.new()
-	head_pick.text = "选择…"
-	head_pick.tooltip_text = "替换 tap / Hold 头 / Path 头的打击音（wav / ogg / mp3 / flac）；尾音和锚点不变"
-	head_pick.pressed.connect(_pick_custom_sfx)
-	head_row.add_child(head_pick)
-	var head_reset := Button.new()
-	head_reset.text = "恢复默认"
-	head_reset.pressed.connect(func() -> void:
-		if _app.set_hit_sfx_custom_head(""):
-			_refresh_sfx_head_label()
-	)
-	head_row.add_child(head_reset)
-	grid.add_child(head_row)
+	_sfx_head_label = _add_sfx_file_row(grid, "开头音效",
+			"替换 tap / Hold 头 / Path 头的打击音（wav / ogg / mp3 / flac）；尾音和锚点不变",
+			_pick_custom_sfx,
+			func() -> void:
+				if _app.set_hit_sfx_custom_head(""):
+					_refresh_sfx_head_label())
 	_refresh_sfx_head_label()
+	# Path 启动音：星星可以开始划的那一下提示音（slide），和开头音效分开选。
+	_sfx_slide_label = _add_sfx_file_row(grid, "Path 启动音",
+			"替换星星可以开始划时的提示音（wav / ogg / mp3 / flac）",
+			_pick_slide_sfx,
+			func() -> void:
+				if _app.set_path_sfx_custom(""):
+					_refresh_sfx_slide_label())
+	_refresh_sfx_slide_label()
+
+
+## 设置窗口里一行「标签 + 当前文件名 + 选择… + 恢复默认」，返回显示文件名的 Label。
+func _add_sfx_file_row(grid: GridContainer, title: String, tooltip: String,
+		on_pick: Callable, on_reset: Callable) -> Label:
+	var label := Label.new()
+	label.text = title
+	label.add_theme_font_size_override("font_size", 11)
+	grid.add_child(label)
+	var row := HBoxContainer.new()
+	row.add_theme_constant_override("separation", 6)
+	var path_label := Label.new()
+	path_label.add_theme_font_size_override("font_size", 11)
+	path_label.add_theme_color_override("font_color", UITheme.MUTED)
+	path_label.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	path_label.clip_text = true
+	row.add_child(path_label)
+	var pick := Button.new()
+	pick.text = "选择…"
+	pick.tooltip_text = tooltip
+	pick.pressed.connect(on_pick)
+	row.add_child(pick)
+	var reset := Button.new()
+	reset.text = "恢复默认"
+	reset.pressed.connect(on_reset)
+	row.add_child(reset)
+	grid.add_child(row)
+	return path_label
 
 
 ## 选一个音频文件当「音符开头」音效（tap / Hold 头 / Path 头）；文件复制进 user://sfx/。
 func _pick_custom_sfx() -> void:
+	_pick_sfx_file("选择音符开头音效", func(path: String) -> void:
+		_app.set_hit_sfx_custom_head(path)
+		_refresh_sfx_head_label())
+
+
+## 选一个音频文件当「Path 启动音」（slide）；文件复制进 user://sfx/。
+func _pick_slide_sfx() -> void:
+	_pick_sfx_file("选择 Path 启动音", func(path: String) -> void:
+		_app.set_path_sfx_custom(path)
+		_refresh_sfx_slide_label())
+
+
+func _pick_sfx_file(title: String, apply: Callable) -> void:
 	var dialog := FileDialog.new()
 	dialog.file_mode = FileDialog.FILE_MODE_OPEN_FILE
 	dialog.access = FileDialog.ACCESS_FILESYSTEM
 	dialog.filters = PackedStringArray(["*.wav,*.ogg,*.mp3,*.flac ; 音频"])
-	dialog.title = "选择音符开头音效"
+	dialog.title = title
 	dialog.file_selected.connect(func(path: String) -> void:
-		_app.set_hit_sfx_custom_head(path)
-		_refresh_sfx_head_label()
+		apply.call(path)
 		dialog.queue_free()
 	)
 	dialog.canceled.connect(func() -> void: dialog.queue_free())
@@ -3036,10 +3070,26 @@ func _refresh_sfx_head_label() -> void:
 	_sfx_head_label.tooltip_text = path if not path.is_empty() else "未选择时使用内置 don / kat / path。"
 
 
+func _refresh_sfx_slide_label() -> void:
+	if _sfx_slide_label == null or _app == null:
+		return
+	var path: String = _app.path_sfx_custom
+	_sfx_slide_label.text = _sfx_slide_text(path)
+	_sfx_slide_label.tooltip_text = path if not path.is_empty() else "未选择时使用内置 slide 提示音。"
+
+
 func _sfx_head_text(path: String) -> String:
 	if path.is_empty():
 		return "内置（don / kat / path）"
 	# 文件被手动删掉时如实说明：HitSfx 会退回内置音。
+	if not FileAccess.file_exists(path):
+		return "%s（文件缺失，使用内置音）" % path.get_file()
+	return path.get_file()
+
+
+func _sfx_slide_text(path: String) -> String:
+	if path.is_empty():
+		return "内置（slide）"
 	if not FileAccess.file_exists(path):
 		return "%s（文件缺失，使用内置音）" % path.get_file()
 	return path.get_file()

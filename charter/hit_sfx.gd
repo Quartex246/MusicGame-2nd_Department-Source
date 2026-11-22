@@ -35,6 +35,11 @@ var _custom_head: AudioStream = null
 var _custom_head_key: String = ""
 ## 同一路径重新选了内容不同的文件时，靠修改时间判断要不要重新加载。
 var _custom_head_mtime: int = 0
+## 自定义「Path 启动音」（slide：星星可以开始划的提示音）。
+var custom_slide_path: String = ""
+var _custom_slide: AudioStream = null
+var _custom_slide_key: String = ""
+var _custom_slide_mtime: int = 0
 ## 「截停」用：上一次音符开头音效占用的播放器与开始时刻。
 var _last_head_player: AudioStreamPlayer = null
 var _last_head_ms: int = -1000
@@ -89,10 +94,39 @@ func has_custom_head() -> bool:
 	return _custom_head != null
 
 
+## 指定自定义「Path 启动音」（slide）；传空字符串恢复内置。加载失败静默退回内置，
+## 但路径保留，用户把文件放回原位后无需重新选择。
+func set_custom_slide(path: String) -> void:
+	path = path.strip_edges()
+	custom_slide_path = path
+	if path.is_empty():
+		_custom_slide_key = ""
+		_custom_slide_mtime = 0
+		_custom_slide = null
+		return
+	var mtime := FileAccess.get_modified_time(path)
+	if path == _custom_slide_key and mtime == _custom_slide_mtime:
+		return
+	_custom_slide_key = path
+	_custom_slide_mtime = mtime
+	_custom_slide = null
+	var stream := ChartIO.audio_stream_from_path(path)
+	if stream == null:
+		push_warning("HitSfx: 无法加载自定义 Path 启动音效 %s，回退到内置音。" % path)
+		return
+	_custom_slide = stream
+
+
+func has_custom_slide() -> bool:
+	return _custom_slide != null
+
+
 ## 某个 kind 实际使用的采样来源（导出混音用它解码）。
 func stream_path_for(kind: String) -> String:
 	if kind in HEAD_KINDS and not custom_head_path.is_empty():
 		return custom_head_path
+	if kind == "slide" and not custom_slide_path.is_empty():
+		return custom_slide_path
 	return String(PATHS.get(kind, ""))
 
 
@@ -100,7 +134,8 @@ func play(kind: String, pitch: float = 1.0) -> void:
 	if style == "mute":
 		return
 	var custom := kind in HEAD_KINDS and _custom_head != null
-	var stream: AudioStream = _custom_head if custom else _streams.get(kind)
+	var custom_slide := kind == "slide" and _custom_slide != null
+	var stream: AudioStream = _custom_head if custom else (_custom_slide if custom_slide else _streams.get(kind))
 	if stream == null or _players.is_empty():
 		return
 	var player := _players[_index % _players.size()]
@@ -115,7 +150,8 @@ func play(kind: String, pitch: float = 1.0) -> void:
 		_last_head_player = player
 		_last_head_ms = now
 	player.stream = stream
-	# 自定义音效统一用一个音量基准，避免 don/kat/path 三档不同音量把同一采样拆成三种响度。
+	# 自定义开头音效统一用一个音量基准，避免 don/kat/path 三档不同音量把同一采样拆成三种响度；
+	# Path 启动音只有 slide 一种 kind，仍用它的 0dB 基准，换采样不改变提示音的响度。
 	var base_db: float = VOLUME_DB if custom else float(KIND_DB.get(kind, VOLUME_DB))
 	player.volume_db = base_db + float(STYLE_DB.get(style, 0.0))
 	player.pitch_scale = pitch * float(STYLE_PITCH.get(style, 1.0))

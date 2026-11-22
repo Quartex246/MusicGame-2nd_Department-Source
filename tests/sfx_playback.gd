@@ -21,6 +21,7 @@ func _run() -> void:
 	app.hit_sfx_style = "default"
 	# 本机保存过自定义开头音效时也要跑内置音，否则下面「Path 头与 Tap 同源」的断言会被带偏。
 	app.hit_sfx_custom_head = ""
+	app.path_sfx_custom = ""
 	var editor = load("res://charter/main.tscn").instantiate()
 	root.add_child(editor)
 	editor.set_process(false)
@@ -168,6 +169,26 @@ func _run() -> void:
 	_check(app.hit_sfx_custom_head.is_empty(), "restoring default clears the stored path")
 	_check(not editor._sfx.has_custom_head() and not playtest._sfx.has_custom_head(), "restoring default drops the custom hit everywhere")
 	_check(not FileAccess.file_exists(ProjectSettings.globalize_path(stored)), "restoring default removes the copied file")
+	# 自定义「Path 启动音」（slide）：独立于开头音效，只换星星起划提示音。
+	var slide_wav := _write_test_wav("user://sfx_custom_slide_test.wav")
+	_check(not slide_wav.is_empty(), "custom slide wav fixture written")
+	app.set_path_sfx_custom(slide_wav)
+	var slide_stored: String = app.path_sfx_custom
+	_check(slide_stored.begins_with("user://sfx/path-"), "custom slide copied into its own file")
+	_check(editor._sfx.has_custom_slide() and playtest._sfx.has_custom_slide(), "editor and playtest pick up custom slide")
+	_check(editor._sfx.stream_path_for("slide") == slide_stored, "custom slide is used for the slide cue")
+	_check(editor._sfx.stream_path_for("don") == String(HitSfx.PATHS["don"]), "custom slide leaves note heads on the builtin sample")
+	for player in editor._sfx._players:
+		player.stop()
+	editor._sfx.play("slide")
+	var slide_player: AudioStreamPlayer = _last_player(editor._sfx)
+	_check(slide_player.stream == editor._sfx._custom_slide, "custom slide replaces the slide sample")
+	_check(is_equal_approx(slide_player.volume_db, float(HitSfx.KIND_DB["slide"])), "custom slide keeps the prompt loudness")
+	_check(await _await_peak(capture) > 0.001, "custom slide reaches SFX bus")
+	app.set_path_sfx_custom("")
+	_check(app.path_sfx_custom.is_empty(), "restoring default clears the slide path")
+	_check(not editor._sfx.has_custom_slide() and not playtest._sfx.has_custom_slide(), "restoring default drops the custom slide everywhere")
+	_check(not FileAccess.file_exists(ProjectSettings.globalize_path(slide_stored)), "restoring default removes the copied slide file")
 	# 「截停」：连续命中时上一声立即停；同一帧的合键保留叠加。
 	for player in editor._sfx._players:
 		player.stop()
@@ -192,6 +213,10 @@ func _run() -> void:
 	await create_timer(0.02).timeout
 	editor._sfx.play("tail")
 	_check(tail_a.playing, "path tails are not cut by the next tail")
+	# 设置窗口的「音频」页要同时列出两行（入口曾经只加在 Inspector 里，用户找不到）。
+	editor._open_settings()
+	_check(editor._sfx_head_label != null and editor._sfx_slide_label != null, "settings audio page lists both sfx rows")
+	_check(editor._sfx_slide_label.text == "内置（slide）", "slide row shows the builtin label by default")
 	AudioServer.remove_bus_effect(bus, 0)
 	playtest.free()
 	editor.free()

@@ -97,6 +97,8 @@ var hit_fx_style: String = "burst"
 var hit_sfx_style: String = "default"
 ## 自定义「音符开头」音效（hit：tap / hold 头 / path 头）的 user:// 路径；空 = 内置音。
 var hit_sfx_custom_head: String = ""
+## 自定义「Path 启动音」（slide：星星可以开始划的提示音）的 user:// 路径；空 = 内置音。
+var path_sfx_custom: String = ""
 ## 试玩光标大小倍率（1.0 = 默认）。
 var cursor_scale: float = 1.0
 ## 帧率上限："60" / "120" / "144" / "240" / "vsync" / "unlimited"。
@@ -612,6 +614,7 @@ func _load_settings() -> void:
 			hit_fx_style = String(data.get("hit_fx_style", hit_fx_style))
 			hit_sfx_style = String(data.get("hit_sfx_style", hit_sfx_style))
 			hit_sfx_custom_head = String(data.get("hit_sfx_custom_head", hit_sfx_custom_head))
+			path_sfx_custom = String(data.get("path_sfx_custom", path_sfx_custom))
 			ffmpeg_path = String(data.get("ffmpeg", ffmpeg_path))
 			frame_cap = String(data.get("frame_cap", frame_cap))
 			video_encoder = String(data.get("video_encoder", video_encoder))
@@ -787,7 +790,7 @@ func effective_latency_sec() -> float:
 
 
 func save_settings() -> void:
-	var data := {"settings_version": 1, "path_wait_indicator": path_wait_indicator, "note_skin": note_skin, "hit_fx_style": hit_fx_style, "hit_sfx_style": hit_sfx_style, "hit_sfx_custom_head": hit_sfx_custom_head, "ffmpeg": ffmpeg_path, "frame_cap": frame_cap, "video_encoder": video_encoder, "audio_buffer_ms": audio_buffer_ms, "playtest_offset_ms": playtest_offset_ms, "audio_latency_ms": audio_latency_ms, "music_volume": music_volume, "sfx_volume": sfx_volume, "dynamic_offset": dynamic_offset, "playtest_auto": playtest_auto, "playtest_mirror": playtest_mirror, "playback_scroll": playback_scroll, "background_brightness": background_brightness, "mouse_tilt": mouse_tilt, "startup_tabs": startup_tabs, "osu_favorites": osu_favorites, "last_bias_ms": last_bias_ms, "cursor_scale": cursor_scale, "flow_scale": flow_scale, "aa_2d_level": aa_2d_level, "msaa_3d_level": msaa_3d_level, "ring_pad_rect": ring_pad_rect, "angle_divisions": angle_divisions, "note_detail_fine": note_detail_fine, "note_glow": note_glow, "path_style": path_style, "bpm_lock_ms": bpm_lock_ms, "cursor_trail": cursor_trail, "fx_budget": fx_budget, "ring_3d_scale": ring_3d_scale, "bar_lines": bar_lines, "quality_preset": quality_preset,
+	var data := {"settings_version": 1, "path_wait_indicator": path_wait_indicator, "note_skin": note_skin, "hit_fx_style": hit_fx_style, "hit_sfx_style": hit_sfx_style, "hit_sfx_custom_head": hit_sfx_custom_head, "path_sfx_custom": path_sfx_custom, "ffmpeg": ffmpeg_path, "frame_cap": frame_cap, "video_encoder": video_encoder, "audio_buffer_ms": audio_buffer_ms, "playtest_offset_ms": playtest_offset_ms, "audio_latency_ms": audio_latency_ms, "music_volume": music_volume, "sfx_volume": sfx_volume, "dynamic_offset": dynamic_offset, "playtest_auto": playtest_auto, "playtest_mirror": playtest_mirror, "playback_scroll": playback_scroll, "background_brightness": background_brightness, "mouse_tilt": mouse_tilt, "startup_tabs": startup_tabs, "osu_favorites": osu_favorites, "last_bias_ms": last_bias_ms, "cursor_scale": cursor_scale, "flow_scale": flow_scale, "aa_2d_level": aa_2d_level, "msaa_3d_level": msaa_3d_level, "ring_pad_rect": ring_pad_rect, "angle_divisions": angle_divisions, "note_detail_fine": note_detail_fine, "note_glow": note_glow, "path_style": path_style, "bpm_lock_ms": bpm_lock_ms, "cursor_trail": cursor_trail, "fx_budget": fx_budget, "ring_3d_scale": ring_3d_scale, "bar_lines": bar_lines, "quality_preset": quality_preset,
 		"hud_scale": hud_scale, "hud_combo_mode": hud_combo_mode, "hud_progress_style": hud_progress_style,
 		"hud_judge_position": hud_judge_position, "hud_opacity": hud_opacity,
 		"hud_show_title": hud_show_title, "hud_show_difficulty": hud_show_difficulty,
@@ -817,33 +820,50 @@ func set_ffmpeg_path(path: String) -> void:
 ## 选一个音频文件当「音符开头」音效（hit：tap / hold 头 / path 头）：复制进 user://sfx/，
 ## 之后即使原文件被移走或打包也能播。传空字符串恢复内置音；返回是否生效。
 func set_hit_sfx_custom_head(source: String) -> bool:
+	return _set_custom_sfx("head", source)
+
+
+## 选一个音频文件当「Path 启动音」（slide：星星可以开始划的提示音）。
+## 传空字符串恢复内置音；返回是否生效。
+func set_path_sfx_custom(source: String) -> bool:
+	return _set_custom_sfx("path", source)
+
+
+func _set_custom_sfx(slot: String, source: String) -> bool:
 	source = source.strip_edges()
 	var stored := ""
 	if not source.is_empty():
 		if not MediaIO.is_supported_audio(source):
 			notice.emit("不支持的音效格式：%s（可用 wav / ogg / mp3 / flac）" % source.get_extension(), "warning")
 			return false
-		stored = _store_custom_sfx(source)
+		# 两个槽用不同前缀，同一个文件分别选给「开头音效」和「Path 启动音」时不会互相覆盖。
+		stored = _store_custom_sfx(source, "path-" if slot == "path" else "")
 		if stored.is_empty():
 			notice.emit("无法复制音效文件：%s" % source, "warning")
 			return false
-	var previous := hit_sfx_custom_head
-	hit_sfx_custom_head = stored
+	var previous := path_sfx_custom if slot == "path" else hit_sfx_custom_head
+	if slot == "path":
+		path_sfx_custom = stored
+	else:
+		hit_sfx_custom_head = stored
 	save_settings()
-	# 换文件时清掉上一份副本（只清 user://sfx/ 里的），免得目录越攒越多。
+	# 换文件时清掉上一份副本（只清 user://sfx/ 里的），免得目录越攒越多；
+	# 两个槽可能指向同一份文件，只有没人再用时才删。
 	if previous != stored and previous.begins_with(CUSTOM_SFX_DIR + "/"):
-		DirAccess.remove_absolute(ProjectSettings.globalize_path(previous))
+		if previous != hit_sfx_custom_head and previous != path_sfx_custom:
+			DirAccess.remove_absolute(ProjectSettings.globalize_path(previous))
 	appearance_changed.emit()
-	notice.emit("音符开头音效：%s" % ("内置" if stored.is_empty() else stored.get_file()), "info")
+	var label := "Path 启动音" if slot == "path" else "音符开头音效"
+	notice.emit("%s：%s" % [label, "内置" if stored.is_empty() else stored.get_file()], "info")
 	return true
 
 
-func _store_custom_sfx(source: String) -> String:
+func _store_custom_sfx(source: String, prefix: String = "") -> String:
 	# 已经在自定义目录里的（用户重复选择同一份）不用再复制。
 	if source.begins_with(CUSTOM_SFX_DIR + "/"):
 		return source
 	DirAccess.make_dir_recursive_absolute(ProjectSettings.globalize_path(CUSTOM_SFX_DIR))
-	var target := "%s/%s" % [CUSTOM_SFX_DIR, source.get_file().validate_filename()]
+	var target := "%s/%s%s" % [CUSTOM_SFX_DIR, prefix, source.get_file().validate_filename()]
 	var err := DirAccess.copy_absolute(ProjectSettings.globalize_path(source), ProjectSettings.globalize_path(target))
 	return target if err == OK else ""
 
